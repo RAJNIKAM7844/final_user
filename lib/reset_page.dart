@@ -12,11 +12,18 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
   final _emailController = TextEditingController();
   bool _isLoading = false;
 
+  static const String _emailPattern = r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$';
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
 
-    if (email.isEmpty) {
-      _showSnackBar('Please enter your email');
+    if (!_validateInput(email)) {
       return;
     }
 
@@ -26,16 +33,35 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
       await Supabase.instance.client.auth.resetPasswordForEmail(email);
       _showSnackBar('Password reset email sent! Check your inbox');
       if (mounted) Navigator.pop(context);
+    } on AuthException catch (e) {
+      _showSnackBar('Error: ${e.message}');
     } catch (e) {
-      _showSnackBar('Error: ${e.toString()}');
+      _showSnackBar('Error: An unexpected error occurred');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  bool _validateInput(String email) {
+    if (email.isEmpty) {
+      _showSnackBar('Please enter your email');
+      return false;
+    }
+
+    if (!RegExp(_emailPattern).hasMatch(email)) {
+      _showSnackBar('Please enter a valid email address');
+      return false;
+    }
+
+    return true;
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 

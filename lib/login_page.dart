@@ -16,6 +16,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _rememberMe = false;
 
+  static const String _emailPattern = r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$';
+  static const int _minPasswordLength = 8;
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -24,29 +27,68 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _signIn() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    // Input validation
+    if (!_validateInputs(email, password)) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       final response = await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        email: email,
+        password: password,
       );
 
-      if (response.user == null) throw Exception('Sign-in failed');
+      if (response.user == null) {
+        throw Exception('Invalid credentials');
+      }
 
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
+    } on AuthException catch (e) {
+      _showSnackBar('Login failed: ${e.message}');
     } catch (e) {
-      _showSnackBar('Login failed: ${e.toString()}');
+      _showSnackBar('Login failed: An unexpected error occurred');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  bool _validateInputs(String email, String password) {
+    if (email.isEmpty) {
+      _showSnackBar('Please enter your email');
+      return false;
+    }
+
+    if (!RegExp(_emailPattern).hasMatch(email)) {
+      _showSnackBar('Please enter a valid email address');
+      return false;
+    }
+
+    if (password.isEmpty) {
+      _showSnackBar('Please enter your password');
+      return false;
+    }
+
+    if (password.length < _minPasswordLength) {
+      _showSnackBar('Password must be at least $_minPasswordLength characters');
+      return false;
+    }
+
+    return true;
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 

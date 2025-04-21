@@ -190,7 +190,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     onPressed: () async {
                       await _supabase.auth.signOut();
-                      Navigator.pushReplacementNamed(context, '/login');
+                      Navigator.pushReplacementNamed(context, '/');
                     },
                     child: const Text(
                       "Log Out",
