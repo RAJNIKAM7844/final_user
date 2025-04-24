@@ -100,107 +100,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
       backgroundColor: Colors.transparent,
       body: CustomBackground(
         child: SafeArea(
-          child: Column(
-            children: [
-              Container(
-                height: 180,
-                width: double.infinity,
-                alignment: Alignment.bottomLeft,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
-                child: const Text(
-                  'Profile.',
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                Container(
+                  height: 180,
+                  width: double.infinity,
+                  alignment: Alignment.bottomLeft,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+                  child: const Text(
+                    'Profile.',
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              if (_isLoading)
-                const Center(
-                  child: CircularProgressIndicator(),
+                const SizedBox(height: 20),
+                if (_isLoading)
+                  const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                if (_errorMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    child: Text(
+                      _errorMessage,
+                      style: const TextStyle(color: Colors.red, fontSize: 14),
+                    ),
+                  ),
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.grey,
+                      backgroundImage: _profileImageUrl != null
+                          ? NetworkImage(_profileImageUrl!)
+                          : null,
+                      child: _profileImageUrl == null
+                          ? const Icon(Icons.person,
+                              size: 50, color: Colors.black)
+                          : null,
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              if (_errorMessage.isNotEmpty)
+                const Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: EdgeInsets.only(right: 20),
+                    child: Icon(Icons.edit, size: 20),
+                  ),
+                ),
+                _buildInfoField(
+                    icon: Icons.person,
+                    text: userData?['full_name'] ?? "No name provided"),
+                _buildInfoField(
+                    icon: Icons.mail,
+                    text: userData?['email'] ?? "No email provided"),
+                _buildInfoField(
+                    icon: Icons.location_on,
+                    text: userData?['location'] ?? "No location provided"),
+                _buildInfoField(
+                    icon: Icons.phone,
+                    text: userData?['phone'] ?? "No phone provided"),
+                const SizedBox(height: 20),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 30),
-                  child: Text(
-                    _errorMessage,
-                    style: const TextStyle(color: Colors.red, fontSize: 14),
-                  ),
-                ),
-              Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Colors.grey,
-                    backgroundImage: _profileImageUrl != null
-                        ? NetworkImage(_profileImageUrl!)
-                        : null,
-                    child: _profileImageUrl == null
-                        ? const Icon(Icons.person,
-                            size: 50, color: Colors.black)
-                        : null,
-                  ),
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A103D), // dark purple
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      onPressed: () async {
+                        await _supabase.auth.signOut();
+                        Navigator.pushReplacementNamed(context, '/login');
+                      },
+                      child: const Text(
+                        "Log Out",
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
-                ],
-              ),
-              const Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: EdgeInsets.only(right: 20),
-                  child: Icon(Icons.edit, size: 20),
                 ),
-              ),
-              _buildInfoField(
-                  icon: Icons.person,
-                  text: userData?['full_name'] ?? "No name provided"),
-              _buildInfoField(
-                  icon: Icons.mail,
-                  text: userData?['email'] ?? "No email provided"),
-              _buildInfoField(
-                  icon: Icons.location_on,
-                  text: userData?['location'] ?? "No location provided"),
-              _buildInfoField(
-                  icon: Icons.phone,
-                  text: userData?['phone'] ?? "No phone provided"),
-              SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 30),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1A103D), // dark purple
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                    ),
-                    onPressed: () async {
-                      await _supabase.auth.signOut();
-                      Navigator.pushReplacementNamed(context, '/');
-                    },
-                    child: const Text(
-                      "Log Out",
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              )
-            ],
+                const SizedBox(height: 20), // Bottom padding
+              ],
+            ),
           ),
         ),
       ),

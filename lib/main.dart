@@ -1,25 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:hms_pro/home_page.dart';
 import 'package:hms_pro/reset_page.dart';
+import 'package:hms_pro/login_page.dart';
+import 'package:hms_pro/sign_up.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'login_page.dart';
-import 'sign_up.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Initialize Supabase (required for auth and other features)
   await Supabase.initialize(
-    url:
-        'https://kwoxhpztkxzqetwanlxx.supabase.co', // Replace with your Supabase URL
+    url: 'https://kwoxhpztkxzqetwanlxx.supabase.co',
     anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3b3hocHp0a3h6cWV0d2FubHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUxMjQyMTAsImV4cCI6MjA2MDcwMDIxMH0.jEIMSnX6-uEA07gjnQKdEXO20Zlpw4XPybfeLQr7W-M', // Replace with your Supabase anon key
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3b3hocHp0a3h6cWV0d2FubHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUxMjQyMTAsImV4cCI6MjA2MDcwMDIxMH0.jEIMSnX6-uEA07gjnQKdEXO20Zlpw4XPybfeLQr7W-M',
   );
-  runApp(const MyApp());
+  final prefs = await SharedPreferences.getInstance();
+  final bool hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
+  runApp(MyApp(hasSeenOnboarding: hasSeenOnboarding));
 }
 
-final supabase = Supabase.instance.client;
-
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool hasSeenOnboarding;
+
+  const MyApp({super.key, required this.hasSeenOnboarding});
 
   @override
   Widget build(BuildContext context) {
@@ -30,12 +33,16 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Roboto',
         primarySwatch: Colors.orange,
       ),
-      initialRoute: '/',
+      initialRoute: hasSeenOnboarding ? '/login' : '/',
       routes: {
-        '/': (context) => const LoginPage(),
+        '/': (context) => const PageOne(),
+        '/page-two': (context) => const PageTwo(),
+        '/page-three': (context) => const PageThree(),
+        '/page-four': (context) => const PageFour(),
+        '/login': (context) => const LoginPage(),
         '/signup': (context) => const SignUpPage(),
         '/home': (context) => const HomePage(),
-        '/reset': (context) => const ResetPasswordPage(), // Add this line
+        '/reset': (context) => const ResetPasswordPage(),
       },
     );
   }
@@ -43,6 +50,8 @@ class MyApp extends StatelessWidget {
 
 // Page 1 - Rolling Egg Animation
 class PageOne extends StatefulWidget {
+  const PageOne({super.key});
+
   @override
   _PageOneState createState() => _PageOneState();
 }
@@ -54,9 +63,10 @@ class _PageOneState extends State<PageOne> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _controller =
-        AnimationController(vsync: this, duration: const Duration(seconds: 2))
-          ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
     _animation = Tween<double>(begin: -10.0, end: 10.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
@@ -72,8 +82,7 @@ class _PageOneState extends State<PageOne> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-            context, MaterialPageRoute(builder: (context) => PageTwo()));
+        Navigator.pushNamed(context, '/page-two');
       },
       child: Scaffold(
         backgroundColor: Colors.white,
@@ -109,6 +118,8 @@ class _PageOneState extends State<PageOne> with SingleTickerProviderStateMixin {
 
 // Page 2 - Stacked Eggs Design
 class PageTwo extends StatelessWidget {
+  const PageTwo({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -121,7 +132,9 @@ class PageTwo extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(15),
               border: Border.all(
-                  color: const Color.fromARGB(255, 51, 51, 51), width: 3),
+                color: const Color.fromARGB(255, 51, 51, 51),
+                width: 3,
+              ),
             ),
             child: Image.asset('assets/image2.png', fit: BoxFit.cover),
           ),
@@ -130,9 +143,10 @@ class PageTwo extends StatelessWidget {
             child: Text(
               "Welcome to HMS EGG DISTRIBUTORS",
               style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
             ),
           ),
           const Padding(
@@ -149,8 +163,7 @@ class PageTwo extends StatelessWidget {
           const SizedBox(height: 25),
           ElevatedButton(
             onPressed: () {
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (context) => PageThree()));
+              Navigator.pushNamed(context, '/page-three');
             },
             child: const Text("CONTINUE"),
           ),
@@ -162,6 +175,8 @@ class PageTwo extends StatelessWidget {
 
 // Page 3 - Egg on Forks Design
 class PageThree extends StatelessWidget {
+  const PageThree({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -178,9 +193,10 @@ class PageThree extends StatelessWidget {
             child: Text(
               "Trusted & Nutritious Eggs",
               style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
             ),
           ),
           const Padding(
@@ -194,8 +210,7 @@ class PageThree extends StatelessWidget {
           const SizedBox(height: 25),
           ElevatedButton(
             onPressed: () {
-              Navigator.push(
-                  context, MaterialPageRoute(builder: (context) => PageFour()));
+              Navigator.pushNamed(context, '/page-four');
             },
             child: const Text("CONTINUE"),
           ),
@@ -205,11 +220,18 @@ class PageThree extends StatelessWidget {
   }
 }
 
-// Page 4 - Final Page with CTA (No Scroll, Fixed Layout)
-// Page 4 - Final Page with Bullet Points and Same Layout as Page 3
-// ✅ add this
-
+// Page 4 - Final Page with CTA
 class PageFour extends StatelessWidget {
+  const PageFour({super.key});
+
+  Future<void> _completeOnboarding(BuildContext context) async {
+    // Set the onboarding flag to true
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hasSeenOnboarding', true);
+    // Navigate to LoginPage
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -246,10 +268,7 @@ class PageFour extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: () {
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (context) => const SignUpPage()));
-            },
+            onPressed: () => _completeOnboarding(context),
             child: const Text("GET STARTED"),
           ),
         ],

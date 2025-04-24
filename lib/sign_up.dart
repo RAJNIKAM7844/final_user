@@ -20,15 +20,23 @@ class _SignUpPageState extends State<SignUpPage> {
   bool _isLoading = false;
   bool _isChecked = false;
   String? _selectedLocation;
-  final List<String> _locations = ["Area 1", "Area 2", "Area 3"];
+  List<String> _locations = [];
   final ImagePicker _picker = ImagePicker();
   XFile? _userImage;
   XFile? _shopImage;
+  RealtimeChannel? _subscription; // For real-time updates
 
   static const String _emailPattern = r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$';
   static const String _phonePattern = r'^\+?1?\d{9,15}$';
   static const int _minPasswordLength = 8;
   static const int _maxFileSizeBytes = 5 * 1024 * 1024; // 5MB
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLocations(); // Initial fetch
+    _setupRealtimeSubscription(); // Set up real-time subscription
+  }
 
   @override
   void dispose() {
@@ -37,7 +45,55 @@ class _SignUpPageState extends State<SignUpPage> {
     _confirmPasswordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _subscription?.unsubscribe(); // Unsubscribe from real-time updates
     super.dispose();
+  }
+
+  // Fetch locations from Supabase
+  Future<void> _fetchLocations() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('delivery_areas')
+          .select('area_name');
+
+      if (response.isNotEmpty) {
+        setState(() {
+          _locations = (response as List<dynamic>)
+              .map((item) => item['area_name'].toString())
+              .toList()
+            ..sort(); // Sort alphabetically for better UX
+          // Reset selected location if it no longer exists
+          if (_selectedLocation != null &&
+              !_locations.contains(_selectedLocation)) {
+            _selectedLocation = null;
+          }
+        });
+      } else {
+        setState(() {
+          _locations = [];
+          _selectedLocation = null; // Reset if no areas
+        });
+        _showSnackBar('No areas available');
+      }
+    } catch (e) {
+      _showSnackBar('Error fetching areas: $e');
+    }
+  }
+
+  // Set up real-time subscription for delivery_areas table
+  void _setupRealtimeSubscription() {
+    _subscription = Supabase.instance.client
+        .channel('public:delivery_areas')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all, // Listen for all changes
+          schema: 'public',
+          table: 'delivery_areas',
+          callback: (payload) {
+            _fetchLocations(); // Refetch locations on change
+            _showSnackBar('Locations updated');
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _signUp() async {
@@ -255,7 +311,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   label: const Text("Gallery"),
                 ),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -266,77 +322,82 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 5),
-                const Text(
-                  "Register Now",
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                ),
-                const Text(
-                  "Sign up with email and password and all fields to continue",
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 10),
-                _buildTextField(Icons.person, "Full Name",
-                    controller: _nameController),
-                _buildTextField(Icons.email, "Email Address",
-                    controller: _emailController),
-                _buildTextField(Icons.lock, "Password",
-                    obscureText: true, controller: _passwordController),
-                _buildTextField(Icons.lock, "Confirm Password",
-                    obscureText: true, controller: _confirmPasswordController),
-                const SizedBox(height: 10),
-                _buildTextField(Icons.phone, "Phone Number",
-                    controller: _phoneController),
-                _locationDropdown(),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _imageCircle(_userImage, Icons.person, true),
-                    const SizedBox(width: 20),
-                    _imageCircle(_shopImage, Icons.store, false),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                _termsCheckbox(),
-                const SizedBox(height: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    backgroundColor: Colors.black,
+      body: RefreshIndicator(
+        onRefresh: _fetchLocations, // Pull-to-refresh
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 5),
+                  const Text(
+                    "Register Now",
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
-                  onPressed: _isLoading ? null : _signUp,
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Register",
-                          style: TextStyle(color: Colors.white)),
-                ),
-                const SizedBox(height: 10),
-                Center(
-                  child: RichText(
-                    text: TextSpan(
-                      text: "Already have an account? ",
-                      style: const TextStyle(color: Colors.black),
-                      children: [
-                        TextSpan(
-                          text: "Sign in",
-                          style: const TextStyle(
-                              color: Colors.red, fontWeight: FontWeight.bold),
-                          recognizer: TapGestureRecognizer()
-                            ..onTap = () => Navigator.pop(context),
-                        )
-                      ],
+                  const Text(
+                    "Sign up with email and password and all fields to continue",
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildTextField(Icons.person, "Full Name",
+                      controller: _nameController),
+                  _buildTextField(Icons.email, "Email Address",
+                      controller: _emailController),
+                  _buildTextField(Icons.lock, "Password",
+                      obscureText: true, controller: _passwordController),
+                  _buildTextField(Icons.lock, "Confirm Password",
+                      obscureText: true,
+                      controller: _confirmPasswordController),
+                  const SizedBox(height: 10),
+                  _buildTextField(Icons.phone, "Phone Number",
+                      controller: _phoneController),
+                  _locationDropdown(),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _imageCircle(_userImage, Icons.person, true),
+                      const SizedBox(width: 20),
+                      _imageCircle(_shopImage, Icons.store, false),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _termsCheckbox(),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      backgroundColor: Colors.black,
+                    ),
+                    onPressed: _isLoading ? null : _signUp,
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text("Register",
+                            style: TextStyle(color: Colors.white)),
+                  ),
+                  const SizedBox(height: 10),
+                  Center(
+                    child: RichText(
+                      text: TextSpan(
+                        text: "Already have an account? ",
+                        style: const TextStyle(color: Colors.black),
+                        children: [
+                          TextSpan(
+                            text: "Sign in",
+                            style: const TextStyle(
+                                color: Colors.red, fontWeight: FontWeight.bold),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -379,31 +440,42 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 
   Widget _locationDropdown() {
-    return DropdownButtonFormField<String>(
-      decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.location_on, color: Colors.grey),
-        hintText: "Select Location",
-        hintStyle: const TextStyle(color: Colors.grey),
-        border: InputBorder.none,
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.location_on, color: Colors.grey),
+              hintText: _locations.isEmpty ? "Loading..." : "Select Location",
+              hintStyle: const TextStyle(color: Colors.grey),
+              border: InputBorder.none,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.grey[200],
+            ),
+            value: _selectedLocation,
+            items: _locations
+                .map((location) => DropdownMenuItem(
+                      value: location,
+                      child: Text(location),
+                    ))
+                .toList(),
+            onChanged: (value) => setState(() => _selectedLocation = value),
+          ),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _fetchLocations,
+          tooltip: 'Refresh Locations',
         ),
-        filled: true,
-        fillColor: Colors.grey[200],
-      ),
-      value: _selectedLocation,
-      items: _locations
-          .map((location) => DropdownMenuItem(
-                value: location,
-                child: Text(location),
-              ))
-          .toList(),
-      onChanged: (value) => setState(() => _selectedLocation = value),
+      ],
     );
   }
 
@@ -436,7 +508,7 @@ class _SignUpPageState extends State<SignUpPage> {
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text("Close"),
-                )
+                ),
               ],
             ),
           ),

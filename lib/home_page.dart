@@ -66,8 +66,8 @@ class _HomePageState extends State<HomePage> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavItem(Icons.home_outlined, 0),
-              _buildNavItem(Icons.people_outline, 1),
               _buildNavItem(Icons.info_outline, 2),
+              _buildNavItem(Icons.people_outline, 1),
               _buildNavItem(Icons.person_outline, 3),
             ],
           ),

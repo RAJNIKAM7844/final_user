@@ -94,18 +94,6 @@ class AboutPage extends StatelessWidget {
               ),
 
               // Profile Icon (Top Right)
-              Positioned(
-                top: 20,
-                right: 20,
-                child: CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Colors.white,
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
             ],
           ),
         ),
