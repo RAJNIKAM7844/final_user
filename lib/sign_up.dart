@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -122,10 +123,19 @@ class _SignUpPageState extends State<SignUpPage> {
         String? profileImageUrl;
         String? shopImageUrl;
 
+        // Compress and upload profile image
         if (_userImage != null) {
           final file = File(_userImage!.path);
           if (await file.length() > _maxFileSizeBytes) {
             _showSnackBar('Profile image size must be less than 5MB');
+            return;
+          }
+
+          // Compress the image to ~100KB
+          final compressedFile =
+              await _compressImage(file, userId, 'profile_$timestamp');
+          if (compressedFile == null) {
+            _showSnackBar('Failed to compress profile image');
             return;
           }
 
@@ -134,17 +144,26 @@ class _SignUpPageState extends State<SignUpPage> {
 
           await Supabase.instance.client.storage
               .from('userprofile')
-              .upload(filePath, file);
+              .upload(filePath, compressedFile);
 
           profileImageUrl = Supabase.instance.client.storage
               .from('userprofile')
               .getPublicUrl(filePath);
         }
 
+        // Compress and upload shop image
         if (_shopImage != null) {
           final shopFile = File(_shopImage!.path);
           if (await shopFile.length() > _maxFileSizeBytes) {
             _showSnackBar('Shop image size must be less than 5MB');
+            return;
+          }
+
+          // Compress the image to ~100KB
+          final compressedShopFile =
+              await _compressImage(shopFile, userId, 'shop_$timestamp');
+          if (compressedShopFile == null) {
+            _showSnackBar('Failed to compress shop image');
             return;
           }
 
@@ -153,7 +172,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
           await Supabase.instance.client.storage
               .from('shopimages')
-              .upload(shopFilePath, shopFile);
+              .upload(shopFilePath, compressedShopFile);
 
           shopImageUrl = Supabase.instance.client.storage
               .from('shopimages')
@@ -170,7 +189,8 @@ class _SignUpPageState extends State<SignUpPage> {
           'shop_image': shopImageUrl,
         });
 
-        Navigator.pushReplacementNamed(context, '/');
+        // Navigate to the login page after successful registration
+        Navigator.pushReplacementNamed(context, '/login');
       }
     } on AuthException catch (e) {
       _showSnackBar('Signup failed: ${e.message}');
@@ -178,6 +198,49 @@ class _SignUpPageState extends State<SignUpPage> {
       _showSnackBar('Signup failed: An unexpected error occurred');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Helper method to compress images
+  Future<File?> _compressImage(
+      File file, String userId, String fileName) async {
+    try {
+      final tempDir = Directory.systemTemp;
+      final targetPath = '${tempDir.path}/compressed_$fileName.jpg';
+
+      // Compress the image
+      final compressedFile = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        targetPath,
+        quality: 70, // Adjust quality to target ~100KB
+        minWidth: 800, // Adjust resolution if needed
+        minHeight: 800,
+      );
+
+      if (compressedFile == null) {
+        return null;
+      }
+
+      final compressedSize = await compressedFile.length();
+      if (compressedSize > 100 * 1024) {
+        // If still larger than 100KB, try reducing quality further
+        final furtherCompressedFile =
+            await FlutterImageCompress.compressAndGetFile(
+          file.absolute.path,
+          targetPath,
+          quality: 50, // Further reduce quality
+          minWidth: 600,
+          minHeight: 600,
+        );
+        return furtherCompressedFile != null
+            ? File(furtherCompressedFile.path)
+            : null;
+      }
+
+      return File(compressedFile.path);
+    } catch (e) {
+      _showSnackBar('Error compressing image: $e');
+      return null;
     }
   }
 

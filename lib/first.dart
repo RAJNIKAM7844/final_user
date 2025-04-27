@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hms_pro/home_page.dart';
-import 'package:hms_pro/trans.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart'; // Added for DateTime formatting
+import 'package:intl/intl.dart';
 
 // Transaction Model
 class Transaction {
@@ -21,76 +20,6 @@ class Transaction {
   });
 }
 
-// Transaction Data
-final List<Transaction> transactions = [
-  Transaction(
-      date: "Mar 22",
-      credit: 2000,
-      paid: 500,
-      balance: 500,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 5000,
-      paid: 2000,
-      balance: 3000,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 2000,
-      paid: 1000,
-      balance: 1000,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 4000,
-      paid: 2000,
-      balance: 2000,
-      modeOfPayment: "Online"),
-  Transaction(
-      date: "Mar 22",
-      credit: 6000,
-      paid: 5000,
-      balance: 2000,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 1000,
-      paid: 6000,
-      balance: 4000,
-      modeOfPayment: "Online"),
-  Transaction(
-      date: "Mar 22",
-      credit: 2000,
-      paid: 1000,
-      balance: 1000,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 5000,
-      paid: 4000,
-      balance: 1000,
-      modeOfPayment: "Online"),
-  Transaction(
-      date: "Mar 22",
-      credit: 7800,
-      paid: 6000,
-      balance: 2200,
-      modeOfPayment: "Online"),
-  Transaction(
-      date: "Mar 22",
-      credit: 2700,
-      paid: 5000,
-      balance: 2000,
-      modeOfPayment: "Cash"),
-  Transaction(
-      date: "Mar 22",
-      credit: 2300,
-      paid: 2000,
-      balance: 1000,
-      modeOfPayment: "Cash"),
-];
-
 class FirstPage extends StatefulWidget {
   const FirstPage({super.key});
 
@@ -105,7 +34,9 @@ class _FirstPageState extends State<FirstPage> {
   double targetRate = 4.7;
   String? _profileImageUrl;
   bool _isLoadingProfileImage = true;
-  DateTime? _lastUpdated; // Variable to store updated_at timestamp
+  DateTime? _lastUpdated;
+  double creditBalance = 0.0; // Will store the sum of transaction credits
+  List<Transaction> transactions = []; // To store fetched transactions
 
   final List<String> images = [
     'assets/eggs1.png',
@@ -121,27 +52,138 @@ class _FirstPageState extends State<FirstPage> {
     _startAutoScroll();
     _loadEggRate();
     _fetchProfileImage();
+    _loadCreditData();
+    _setupRealtimeSubscription(); // Set up real-time subscription
+  }
+
+  // Load balance and transactions from Supabase with robust date parsing
+  Future<void> _loadCreditData() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        print('No authenticated user found');
+        return;
+      }
+
+      print('Fetching credit data for userId: $userId');
+
+      // Fetch transactions from transactions table
+      final transactionsResponse = await _supabase
+          .from('transactions')
+          .select()
+          .eq('user_id', userId)
+          .order('date', ascending: false);
+
+      print('Transactions response for userId $userId: $transactionsResponse');
+
+      setState(() {
+        // Calculate creditBalance as the sum of all credit values
+        creditBalance = transactionsResponse.fold(0.0, (sum, t) {
+          return sum + (t['credit']?.toDouble() ?? 0.0);
+        });
+        transactions = transactionsResponse.map<Transaction>((t) {
+          String dateStr =
+              t['date']?.toString() ?? DateTime.now().toIso8601String();
+          DateTime parsedDate;
+          try {
+            // Try ISO 8601 format first
+            parsedDate = DateTime.parse(dateStr);
+          } catch (e) {
+            // Fallback to MMM dd format if ISO fails
+            try {
+              parsedDate = DateFormat('MMM dd').parse(dateStr);
+              // Ensure year is set to current year for consistency
+              parsedDate = DateTime(
+                  DateTime.now().year, parsedDate.month, parsedDate.day);
+            } catch (e) {
+              print('Error parsing date $dateStr with fallback: $e');
+              parsedDate = DateTime.now(); // Final fallback
+            }
+          }
+          return Transaction(
+            date: DateFormat('MMM dd').format(parsedDate),
+            credit: t['credit'].toDouble(),
+            paid: t['paid'].toDouble(),
+            balance: t['balance'].toDouble(),
+            modeOfPayment: t['mode_of_payment']?.toString() ?? 'N/A',
+          );
+        }).toList();
+      });
+
+      print(
+          'Updated creditBalance (sum of credits) in FirstPage: $creditBalance');
+      print('Updated transactions count: ${transactions.length}');
+    } catch (e) {
+      print('Error fetching credit data: $e');
+    }
+  }
+
+  // Set up real-time subscription for balance and transactions
+  void _setupRealtimeSubscription() {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      print('No userId for real-time subscription');
+      return;
+    }
+
+    print('Setting up real-time subscription for userId: $userId');
+
+    _supabase
+        .channel('users')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'users',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: userId,
+          ),
+          callback: (payload) {
+            print(
+                'Real-time balance update received for userId $userId: $payload');
+            // Note: This subscription is kept for compatibility, but we'll rely on transaction updates
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'transactions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            print(
+                'Real-time transaction update received for userId $userId: $payload');
+            _loadCreditData(); // Refresh transactions and recalculate creditBalance
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadEggRate() async {
     try {
       final response = await _supabase
           .from('egg_rates')
-          .select('rate, updated_at') // Fetch rate and updated_at
+          .select('rate, updated_at')
           .eq('id', 1)
           .maybeSingle();
+
+      print('Egg rate response: $response');
 
       if (response != null && response['rate'] != null) {
         setState(() {
           targetRate = response['rate'].toDouble();
           _lastUpdated = response['updated_at'] != null
-              ? DateTime.parse(response['updated_at'])
-              : null; // Store updated_at if available
+              ? DateTime.parse(response['updated_at'].toString())
+              : null;
         });
       } else {
         setState(() {
           targetRate = 4.7;
-          _lastUpdated = null; // No timestamp if no data
+          _lastUpdated = null;
         });
       }
     } catch (e) {
@@ -163,6 +205,7 @@ class _FirstPageState extends State<FirstPage> {
       final userId = _supabase.auth.currentUser?.id;
 
       if (userId == null) {
+        print('No userId for fetching profile image');
         setState(() {
           _isLoadingProfileImage = false;
         });
@@ -174,6 +217,8 @@ class _FirstPageState extends State<FirstPage> {
           .select('profile_image')
           .eq('id', userId)
           .maybeSingle();
+
+      print('Profile image response: $response');
 
       if (response != null && response['profile_image'] != null) {
         final imagePath = response['profile_image'];
@@ -220,7 +265,6 @@ class _FirstPageState extends State<FirstPage> {
     }
   }
 
-  // Format DateTime to a readable string (e.g., "9 April, 6:32 AM")
   String _formatDateTime(DateTime? dateTime) {
     if (dateTime == null) return 'Unknown';
     final formatter = DateFormat('d MMMM, h:mm a');
@@ -231,6 +275,7 @@ class _FirstPageState extends State<FirstPage> {
     await Future.wait([
       _loadEggRate(),
       _fetchProfileImage(),
+      _loadCreditData(),
     ]);
   }
 
@@ -264,7 +309,15 @@ class _FirstPageState extends State<FirstPage> {
   }
 
   @override
+  void dispose() {
+    _supabase.channel('users').unsubscribe();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    print(
+        'Building FirstPage with creditBalance: $creditBalance'); // Debug UI build
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -304,7 +357,7 @@ class _FirstPageState extends State<FirstPage> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => CreditDetailsPage(
-                                    creditBalance: 0.0,
+                                    creditBalance: creditBalance,
                                     transactions: transactions,
                                   ),
                                 ),
@@ -321,9 +374,10 @@ class _FirstPageState extends State<FirstPage> {
                                       color: Colors.black12, blurRadius: 4),
                                 ],
                               ),
-                              child: const Text(
-                                'Credit : ₹0.0',
-                                style: TextStyle(fontWeight: FontWeight.bold),
+                              child: Text(
+                                'Credit: ₹${creditBalance.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
                               ),
                             ),
                           ),
@@ -468,6 +522,8 @@ class CreditDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print(
+        'Building CreditDetailsPage with creditBalance: $creditBalance'); // Debug UI build
     return Scaffold(
       appBar: AppBar(
         title: const Text('Credit Details'),
