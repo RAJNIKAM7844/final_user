@@ -8,21 +8,35 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize Supabase (required for auth and other features)
+  // Initialize Supabase
   await Supabase.initialize(
     url: 'https://kwoxhpztkxzqetwanlxx.supabase.co',
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3b3hocHp0a3h6cWV0d2FubHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUxMjQyMTAsImV4cCI6MjA2MDcwMDIxMH0.jEIMSnX6-uEA07gjnQKdEXO20Zlpw4XPybfeLQr7W-M',
   );
+
   final prefs = await SharedPreferences.getInstance();
   final bool hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
-  runApp(MyApp(hasSeenOnboarding: hasSeenOnboarding));
+
+  // Check if the user is already logged in
+  final supabase = Supabase.instance.client;
+  final isLoggedIn = supabase.auth.currentSession != null;
+
+  runApp(MyApp(
+    hasSeenOnboarding: hasSeenOnboarding,
+    isLoggedIn: isLoggedIn,
+  ));
 }
 
 class MyApp extends StatelessWidget {
   final bool hasSeenOnboarding;
+  final bool isLoggedIn;
 
-  const MyApp({super.key, required this.hasSeenOnboarding});
+  const MyApp({
+    super.key,
+    required this.hasSeenOnboarding,
+    required this.isLoggedIn,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +47,8 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Roboto',
         primarySwatch: Colors.orange,
       ),
-      initialRoute: hasSeenOnboarding ? '/login' : '/',
+      // Set initial route based on onboarding and login status
+      initialRoute: isLoggedIn ? '/home' : (hasSeenOnboarding ? '/login' : '/'),
       routes: {
         '/': (context) => const PageOne(),
         '/page-two': (context) => const PageTwo(),
