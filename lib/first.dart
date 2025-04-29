@@ -35,7 +35,7 @@ class _FirstPageState extends State<FirstPage> {
   String? _profileImageUrl;
   bool _isLoadingProfileImage = true;
   DateTime? _lastUpdated;
-  double creditBalance = 0.0; // Will store the sum of transaction credits
+  double creditBalance = 0.0; // Will store the correct balance
   List<Transaction> transactions = []; // To store fetched transactions
 
   final List<String> images = [
@@ -53,7 +53,7 @@ class _FirstPageState extends State<FirstPage> {
     _loadEggRate();
     _fetchProfileImage();
     _loadCreditData();
-    _setupRealtimeSubscription(); // Set up real-time subscription
+    _setupRealtimeSubscription();
   }
 
   // Load balance and transactions from Supabase with robust date parsing
@@ -77,44 +77,49 @@ class _FirstPageState extends State<FirstPage> {
       print('Transactions response for userId $userId: $transactionsResponse');
 
       setState(() {
-        // Calculate creditBalance as the sum of all credit values
-        creditBalance = transactionsResponse.fold(0.0, (sum, t) {
+        // Calculate creditBalance as sum of credits minus sum of paid
+        double totalCredit = transactionsResponse.fold(0.0, (sum, t) {
           return sum + (t['credit']?.toDouble() ?? 0.0);
         });
+        double totalPaid = transactionsResponse.fold(0.0, (sum, t) {
+          return sum + (t['paid']?.toDouble() ?? 0.0);
+        });
+        creditBalance = totalCredit - totalPaid;
+
         transactions = transactionsResponse.map<Transaction>((t) {
           String dateStr =
               t['date']?.toString() ?? DateTime.now().toIso8601String();
           DateTime parsedDate;
           try {
-            // Try ISO 8601 format first
             parsedDate = DateTime.parse(dateStr);
           } catch (e) {
-            // Fallback to MMM dd format if ISO fails
             try {
               parsedDate = DateFormat('MMM dd').parse(dateStr);
-              // Ensure year is set to current year for consistency
               parsedDate = DateTime(
                   DateTime.now().year, parsedDate.month, parsedDate.day);
             } catch (e) {
               print('Error parsing date $dateStr with fallback: $e');
-              parsedDate = DateTime.now(); // Final fallback
+              parsedDate = DateTime.now();
             }
           }
           return Transaction(
             date: DateFormat('MMM dd').format(parsedDate),
-            credit: t['credit'].toDouble(),
-            paid: t['paid'].toDouble(),
-            balance: t['balance'].toDouble(),
+            credit: t['credit']?.toDouble() ?? 0.0,
+            paid: t['paid']?.toDouble() ?? 0.0,
+            balance: t['balance']?.toDouble() ?? 0.0,
             modeOfPayment: t['mode_of_payment']?.toString() ?? 'N/A',
           );
         }).toList();
       });
 
-      print(
-          'Updated creditBalance (sum of credits) in FirstPage: $creditBalance');
+      print('Updated creditBalance in FirstPage: $creditBalance');
       print('Updated transactions count: ${transactions.length}');
     } catch (e) {
       print('Error fetching credit data: $e');
+      setState(() {
+        creditBalance = 0.0;
+        transactions = [];
+      });
     }
   }
 
@@ -129,22 +134,7 @@ class _FirstPageState extends State<FirstPage> {
     print('Setting up real-time subscription for userId: $userId');
 
     _supabase
-        .channel('users')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'users',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'id',
-            value: userId,
-          ),
-          callback: (payload) {
-            print(
-                'Real-time balance update received for userId $userId: $payload');
-            // Note: This subscription is kept for compatibility, but we'll rely on transaction updates
-          },
-        )
+        .channel('transactions_user_$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -157,7 +147,7 @@ class _FirstPageState extends State<FirstPage> {
           callback: (payload) {
             print(
                 'Real-time transaction update received for userId $userId: $payload');
-            _loadCreditData(); // Refresh transactions and recalculate creditBalance
+            _loadCreditData();
           },
         )
         .subscribe();
@@ -310,14 +300,14 @@ class _FirstPageState extends State<FirstPage> {
 
   @override
   void dispose() {
-    _supabase.channel('users').unsubscribe();
+    _supabase.channel('transactions_user_*').unsubscribe();
+    _pageController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    print(
-        'Building FirstPage with creditBalance: $creditBalance'); // Debug UI build
+    print('Building FirstPage with creditBalance: $creditBalance');
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -510,7 +500,7 @@ class _FirstPageState extends State<FirstPage> {
   }
 }
 
-class CreditDetailsPage extends StatelessWidget {
+class CreditDetailsPage extends StatefulWidget {
   final double creditBalance;
   final List<Transaction> transactions;
 
@@ -521,13 +511,359 @@ class CreditDetailsPage extends StatelessWidget {
   });
 
   @override
+  State<CreditDetailsPage> createState() => _CreditDetailsPageState();
+}
+
+class _CreditDetailsPageState extends State<CreditDetailsPage> {
+  double creditBalance = 0.0;
+  List<Transaction> transactions = [];
+  final _supabase = Supabase.instance.client;
+  bool isLoading = false;
+  int currentPage = 1;
+  static const int itemsPerPage = 5;
+  String sortBy = 'date';
+  bool sortAscending = true;
+  String? searchQuery;
+  final TextEditingController searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    creditBalance = widget.creditBalance;
+    transactions = widget.transactions;
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      print('No userId for real-time subscription in CreditDetailsPage');
+      return;
+    }
+
+    print('Setting up real-time subscription for CreditDetailsPage: $userId');
+
+    _supabase
+        .channel('credit_details_user_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'transactions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            print(
+                'Real-time transaction update in CreditDetailsPage for userId $userId: $payload');
+            _loadCreditData();
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadCreditData() async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        print('No authenticated user found');
+        return;
+      }
+
+      final transactionsResponse = await _supabase
+          .from('transactions')
+          .select()
+          .eq('user_id', userId)
+          .order('date', ascending: false);
+
+      setState(() {
+        double totalCredit = transactionsResponse.fold(0.0, (sum, t) {
+          return sum + (t['credit']?.toDouble() ?? 0.0);
+        });
+        double totalPaid = transactionsResponse.fold(0.0, (sum, t) {
+          return sum + (t['paid']?.toDouble() ?? 0.0);
+        });
+        creditBalance = totalCredit - totalPaid;
+
+        transactions = transactionsResponse.map<Transaction>((t) {
+          String dateStr =
+              t['date']?.toString() ?? DateTime.now().toIso8601String();
+          DateTime parsedDate;
+          try {
+            parsedDate = DateTime.parse(dateStr);
+          } catch (e) {
+            try {
+              parsedDate = DateFormat('MMM dd').parse(dateStr);
+              parsedDate = DateTime(
+                  DateTime.now().year, parsedDate.month, parsedDate.day);
+            } catch (e) {
+              print('Error parsing date $dateStr with fallback: $e');
+              parsedDate = DateTime.now();
+            }
+          }
+          return Transaction(
+            date: DateFormat('MMM dd').format(parsedDate),
+            credit: t['credit']?.toDouble() ?? 0.0,
+            paid: t['paid']?.toDouble() ?? 0.0,
+            balance: t['balance']?.toDouble() ?? 0.0,
+            modeOfPayment: t['mode_of_payment']?.toString() ?? 'N/A',
+          );
+        }).toList();
+
+        _sortTransactions();
+        _filterTransactions();
+      });
+    } catch (e) {
+      print('Error fetching credit data in CreditDetailsPage: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load transactions: $e')),
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  void _sortTransactions() {
+    transactions.sort((a, b) {
+      switch (sortBy) {
+        case 'date':
+          return sortAscending
+              ? a.date.compareTo(b.date)
+              : b.date.compareTo(a.date);
+        case 'credit':
+          return sortAscending
+              ? a.credit.compareTo(b.credit)
+              : b.credit.compareTo(a.credit);
+        case 'paid':
+          return sortAscending
+              ? a.paid.compareTo(b.paid)
+              : b.paid.compareTo(a.paid);
+        case 'balance':
+          return sortAscending
+              ? a.balance.compareTo(b.balance)
+              : b.balance.compareTo(a.balance);
+        case 'modeOfPayment':
+          return sortAscending
+              ? a.modeOfPayment.compareTo(b.modeOfPayment)
+              : b.modeOfPayment.compareTo(a.modeOfPayment);
+        default:
+          return 0;
+      }
+    });
+  }
+
+  void _filterTransactions() {
+    if (searchQuery == null || searchQuery!.isEmpty) return;
+    transactions = transactions.where((t) {
+      final query = searchQuery!.toLowerCase();
+      return t.date.toLowerCase().contains(query) ||
+          t.modeOfPayment.toLowerCase().contains(query) ||
+          t.credit.toString().contains(query) ||
+          t.paid.toString().contains(query) ||
+          t.balance.toString().contains(query);
+    }).toList();
+  }
+
+  void _showPaymentDialog() {
+    final TextEditingController amountController = TextEditingController();
+    String? selectedPaymentMode;
+    final List<String> paymentModes = ['Cash', 'UPI', 'Bank Transfer'];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Make a Payment'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Amount to Pay (₹)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: selectedPaymentMode,
+                decoration: const InputDecoration(
+                  labelText: 'Mode of Payment',
+                  border: OutlineInputBorder(),
+                ),
+                items: paymentModes.map((mode) {
+                  return DropdownMenuItem<String>(
+                    value: mode,
+                    child: Text(mode),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  selectedPaymentMode = value;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: isLoading
+                ? null
+                : () async {
+                    final amountText = amountController.text.trim();
+                    final amount = double.tryParse(amountText);
+                    if (amount == null || amount <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Please enter a valid amount')),
+                      );
+                      return;
+                    }
+                    if (selectedPaymentMode == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Please select a mode of payment')),
+                      );
+                      return;
+                    }
+                    if (amount > creditBalance) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content:
+                                Text('Amount cannot exceed current balance')),
+                      );
+                      return;
+                    }
+
+                    setState(() {
+                      isLoading = true;
+                    });
+
+                    try {
+                      final userId = _supabase.auth.currentUser?.id;
+                      if (userId == null) {
+                        throw Exception('User not authenticated');
+                      }
+
+                      final newBalance = creditBalance - amount;
+                      await _supabase.from('transactions').insert({
+                        'user_id': userId,
+                        'date': DateTime.now().toIso8601String(),
+                        'credit': 0.0,
+                        'paid': amount,
+                        'balance': newBalance,
+                        'mode_of_payment': selectedPaymentMode,
+                      });
+
+                      setState(() {
+                        creditBalance = newBalance;
+                        isLoading = false;
+                      });
+
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Payment recorded successfully')),
+                      );
+                    } catch (e) {
+                      setState(() {
+                        isLoading = false;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to record payment: $e')),
+                      );
+                    }
+                  },
+            child: isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _supabase.channel('credit_details_user_*').unsubscribe();
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    print(
-        'Building CreditDetailsPage with creditBalance: $creditBalance'); // Debug UI build
+    print('Building CreditDetailsPage with creditBalance: $creditBalance');
+    final paginatedTransactions = transactions
+        .skip((currentPage - 1) * itemsPerPage)
+        .take(itemsPerPage)
+        .toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Credit Details'),
         backgroundColor: const Color(0xFFB3D2F2),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Sort By'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButton<String>(
+                        value: sortBy,
+                        items: [
+                          'date',
+                          'credit',
+                          'paid',
+                          'balance',
+                          'modeOfPayment'
+                        ]
+                            .map((String value) => DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value.capitalize()),
+                                ))
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            sortBy = value!;
+                            _sortTransactions();
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+                      SwitchListTile(
+                        title: const Text('Ascending'),
+                        value: sortAscending,
+                        onChanged: (value) {
+                          setState(() {
+                            sortAscending = value;
+                            _sortTransactions();
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -544,25 +880,97 @@ class CreditDetailsPage extends StatelessWidget {
                     BoxShadow(color: Colors.black12, blurRadius: 4),
                   ],
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
-                    const Text(
-                      'Credit Balance:',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Credit Balance:',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '₹${creditBalance.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '₹${creditBalance.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                      ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total Credit:',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          '₹${transactions.fold(0.0, (sum, t) => sum + t.credit).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total Paid:',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          '₹${transactions.fold(0.0, (sum, t) => sum + t.paid).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(8),
+                child: TextField(
+                  controller: searchController,
+                  decoration: InputDecoration(
+                    labelText: 'Search (Date, Mode, Amount)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        setState(() {
+                          searchController.clear();
+                          searchQuery = null;
+                          _filterTransactions();
+                        });
+                      },
+                    ),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      searchQuery = value;
+                      _filterTransactions();
+                    });
+                  },
                 ),
               ),
               const SizedBox(height: 20),
@@ -586,13 +994,8 @@ class CreditDetailsPage extends StatelessWidget {
                       ),
                     ),
                     ElevatedButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content:
-                                  Text('Payment functionality coming soon!')),
-                        );
-                      },
+                      onPressed:
+                          creditBalance > 0 ? () => _showPaymentDialog() : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         shape: RoundedRectangleBorder(
@@ -616,53 +1019,90 @@ class CreditDetailsPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black12, blurRadius: 4),
+              if (isLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (paginatedTransactions.isEmpty)
+                const Center(
+                    child: Text(
+                  'No transactions found.',
+                  style: TextStyle(color: Colors.grey),
+                ))
+              else
+                Column(
+                  children: [
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: paginatedTransactions.length,
+                      itemBuilder: (context, index) {
+                        final transaction = paginatedTransactions[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          elevation: 2,
+                          child: ListTile(
+                            title: Text(
+                              'Date: ${transaction.date}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    'Credit: ₹${transaction.credit.toStringAsFixed(2)}'),
+                                Text(
+                                    'Paid: ₹${transaction.paid.toStringAsFixed(2)}'),
+                                Text(
+                                    'Balance: ₹${transaction.balance.toStringAsFixed(2)}'),
+                                Text('Mode: ${transaction.modeOfPayment}'),
+                              ],
+                            ),
+                            trailing: const Icon(Icons.receipt),
+                          ),
+                        );
+                      },
+                    ),
+                    if (transactions.length > itemsPerPage)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            onPressed: currentPage > 1
+                                ? () {
+                                    setState(() {
+                                      currentPage--;
+                                    });
+                                  }
+                                : null,
+                          ),
+                          Text('Page $currentPage'),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_forward),
+                            onPressed: currentPage <
+                                    (transactions.length / itemsPerPage).ceil()
+                                ? () {
+                                    setState(() {
+                                      currentPage++;
+                                    });
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
                   ],
                 ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(
-                          label: Text('Date',
-                              style: TextStyle(fontWeight: FontWeight.bold))),
-                      DataColumn(
-                          label: Text('Credit',
-                              style: TextStyle(fontWeight: FontWeight.bold))),
-                      DataColumn(
-                          label: Text('Paid',
-                              style: TextStyle(fontWeight: FontWeight.bold))),
-                      DataColumn(
-                          label: Text('Balance',
-                              style: TextStyle(fontWeight: FontWeight.bold))),
-                      DataColumn(
-                          label: Text('Mode',
-                              style: TextStyle(fontWeight: FontWeight.bold))),
-                    ],
-                    rows: transactions.map((transaction) {
-                      return DataRow(cells: [
-                        DataCell(Text(transaction.date)),
-                        DataCell(
-                            Text('₹${transaction.credit.toStringAsFixed(2)}')),
-                        DataCell(
-                            Text('₹${transaction.paid.toStringAsFixed(2)}')),
-                        DataCell(
-                            Text('₹${transaction.balance.toStringAsFixed(2)}')),
-                        DataCell(Text(transaction.modeOfPayment)),
-                      ]);
-                    }).toList(),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+// Extension to capitalize strings for dropdown
+extension StringExtension on String {
+  String capitalize() {
+    return "${this[0].toUpperCase()}${this.substring(1).toLowerCase()}";
   }
 }
